@@ -13,7 +13,8 @@
     "node-fetch": "^3.3.2",
     "pg": "^8.16.3",
     "ytdl-core": "^4.11.5",
-    "ytdlp-nodejs": "^2.3.4"
+    "ytdlp-nodejs": "^2.3.4",
+    "cors": "*"
   },
   "name": "videos",
   "version": "1.0.0",
