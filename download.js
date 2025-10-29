@@ -1,108 +1,84 @@
+// ===============================
+// 🧠 Importaciones necesarias
+// ===============================
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 
+// ===============================
+// ⚙️ Configuración del servidor
+// ===============================
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// 🧠 Permitir CORS desde cualquier origen
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-}));
+// ===============================
+// 🌍 CORS global y manejo de OPTIONS
+// ===============================
+app.use(cors());
 
-// ✅ Esta línea es la clave para evitar el error de PathError
-app.options("/*", cors());
-
-// ✅ Middleware adicional por si hay preflight manual
 app.use((req, res, next) => {
+  // Permitir cualquier origen
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+
+  // Métodos permitidos
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+
+  // Headers permitidos
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+
+  // Responder rápido a preflight requests
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
+
   next();
 });
 
-function limpiarYouTubeUrl(url) {
+// ===============================
+// 🧩 Middlewares adicionales
+// ===============================
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ===============================
+// 🔥 Ruta de prueba
+// ===============================
+app.get("/", (req, res) => {
+  res.send("🔥 Servidor activo y funcionando correctamente con Express 5!");
+});
+
+// ===============================
+// 🎬 Ejemplo: descarga de datos de YouTube
+// ===============================
+// (Puedes adaptarlo a tu función real)
+app.get("/youtube", async (req, res) => {
   try {
-    const u = new URL(url);
-    if (u.hostname.includes("youtube.com")) {
-      return `https://www.youtube.com/watch?v=${u.searchParams.get("v")}`;
+    const { url } = req.query;
+
+    if (!url) {
+      return res.status(400).json({ error: "Falta el parámetro ?url=" });
     }
-    if (u.hostname.includes("youtu.be")) {
-      return `https://www.youtube.com/watch?v=${u.pathname.slice(1)}`;
-    }
-    return url;
-  } catch {
-    return url;
-  }
-}
 
-app.get("/download/youtube", async (req, res) => {
-  const { url } = req.query;
-
-  if (!url) {
-    return res.status(400).json({ status: false, error: "Falta parámetro ?url=" });
-  }
-
-  try {
-    const cleanUrl = limpiarYouTubeUrl(url);
-    const apiUrl = `https://api.bk9.dev/download/youtube?url=${encodeURIComponent(cleanUrl)}`;
-    const response = await fetch(apiUrl);
+    // Ejemplo: usa tu endpoint de descarga o API real
+    const response = await fetch(`https://api.example.com/youtube?url=${url}`);
     const data = await response.json();
 
-    if (!data || !data.status) {
-      throw new Error("No se pudo obtener datos del video desde la API externa.");
-    }
-
-    const videoInfo = data.BK9 || data;
-    const formatos = videoInfo.formats || [];
-    const audiosPurosM4A = formatos.filter(
-      f => f.type === "audio" && f.extension === "m4a" && f.has_audio && !f.has_video
-    );
-    const mejorVideo = formatos.find(f => f.has_audio && f.has_video) || null;
-
-    const resultado = {
-      status: true,
-      marca: "BK9🔥 + Tu filtro",
-      fuente: "api.bk9.dev",
-      video: {
-        titulo: videoInfo.title,
-        autor: videoInfo.author || videoInfo.uploader || "Desconocido",
-        duracion: videoInfo.duration,
-        miniatura: videoInfo.thumbnail,
-        url_original: cleanUrl,
-        formato_video: mejorVideo
-          ? {
-              calidad: mejorVideo.quality || mejorVideo.quality_label || "360p",
-              extension: mejorVideo.ext || "mp4",
-              enlace: mejorVideo.url,
-            }
-          : null,
-        audios_m4a: audiosPurosM4A.map(audio => ({
-          calidad:
-            audio.quality ||
-            `${audio.bitrate || "desconocida"} - ${audio.audio_quality || ""}`.trim() ||
-            "audio",
-          bitrate: audio.bitrate || "N/A",
-          extension: audio.extension || "m4a",
-          enlace: audio.url,
-          format_id: audio.format_id,
-        })),
-      },
-    };
-
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.send(JSON.stringify(resultado, null, 2));
+    res.json({
+      success: true,
+      data,
+    });
   } catch (err) {
-    console.error("❌ Error:", err);
-    res.status(500).json({ status: false, error: err.message });
+    console.error("❌ Error al procesar la solicitud:", err);
+    res.status(500).json({ error: "Error interno del servidor" });
   }
 });
 
-const PORT = 3000;
+// ===============================
+// 🚀 Iniciar servidor
+// ===============================
 app.listen(PORT, () => {
-  console.log(`✅ API lista en http://localhost:${PORT}/download/youtube?url=`);
+  console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
 });
