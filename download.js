@@ -92,8 +92,8 @@ app.get("/download/youtube", async (req, res) => {
     // 🧩 Construcción del JSON final
     const resultado = {
       status: true,
-      marca: "BK9🔥 + Tu filtro",
-      fuente: "api.bk9.dev",
+      marca: "skrifna.uk",
+      fuente: "skrifna.uk",
       video: {
         titulo: videoInfo.title,
         autor: videoInfo.author || videoInfo.uploader || "Desconocido",
@@ -142,3 +142,4 @@ app.listen(PORT, () => {
     `✅ API con filtro M4A + CORS lista en: http://localhost:${PORT}/download/youtube?url=`
   );
 });
+
