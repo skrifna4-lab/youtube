@@ -1,4 +1,3 @@
-// archivo: server.js
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
@@ -7,18 +6,25 @@ const app = express();
 
 // 🧠 Permitir CORS desde cualquier origen
 app.use(cors({
-  origin: "*", // Permite TODO — si quieres limitar, usa ['https://tusitio.com']
+  origin: "*",
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 }));
 
-// 🔧 Middleware adicional por si el navegador hace preflight (OPTIONS)
-app.options("*", cors());
+// ✅ Esta línea es la clave para evitar el error de PathError
+app.options("/*", cors());
 
-// ✅ Permitir JSON
-app.use(express.json());
+// ✅ Middleware adicional por si hay preflight manual
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
-// 🔹 Función para limpiar URLs de YouTube
 function limpiarYouTubeUrl(url) {
   try {
     const u = new URL(url);
@@ -34,7 +40,6 @@ function limpiarYouTubeUrl(url) {
   }
 }
 
-// 🔥 Ruta principal
 app.get("/download/youtube", async (req, res) => {
   const { url } = req.query;
 
@@ -54,13 +59,9 @@ app.get("/download/youtube", async (req, res) => {
 
     const videoInfo = data.BK9 || data;
     const formatos = videoInfo.formats || [];
-
-    // 🎵 Filtrar audios m4a puros
     const audiosPurosM4A = formatos.filter(
       f => f.type === "audio" && f.extension === "m4a" && f.has_audio && !f.has_video
     );
-
-    // 🟢 Mejor video con audio
     const mejorVideo = formatos.find(f => f.has_audio && f.has_video) || null;
 
     const resultado = {
@@ -103,5 +104,5 @@ app.get("/download/youtube", async (req, res) => {
 
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`✅ API con CORS lista en http://localhost:${PORT}/download/youtube?url=`);
+  console.log(`✅ API lista en http://localhost:${PORT}/download/youtube?url=`);
 });
