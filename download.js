@@ -1,9 +1,24 @@
 // archivo: server.js
 import express from "express";
 import fetch from "node-fetch";
+import cors from "cors";
 
 const app = express();
 
+// 🧠 Permitir CORS desde cualquier origen
+app.use(cors({
+  origin: "*", // Permite TODO — si quieres limitar, usa ['https://tusitio.com']
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+}));
+
+// 🔧 Middleware adicional por si el navegador hace preflight (OPTIONS)
+app.options("*", cors());
+
+// ✅ Permitir JSON
+app.use(express.json());
+
+// 🔹 Función para limpiar URLs de YouTube
 function limpiarYouTubeUrl(url) {
   try {
     const u = new URL(url);
@@ -19,6 +34,7 @@ function limpiarYouTubeUrl(url) {
   }
 }
 
+// 🔥 Ruta principal
 app.get("/download/youtube", async (req, res) => {
   const { url } = req.query;
 
@@ -39,16 +55,14 @@ app.get("/download/youtube", async (req, res) => {
     const videoInfo = data.BK9 || data;
     const formatos = videoInfo.formats || [];
 
-    // 🔹 Filtramos todos los audios m4a
-    const audiosM4A = formatos.filter(f => f.type === 'audio' && f.extension === 'm4a');
+    // 🎵 Filtrar audios m4a puros
+    const audiosPurosM4A = formatos.filter(
+      f => f.type === "audio" && f.extension === "m4a" && f.has_audio && !f.has_video
+    );
 
-    // 🎵 Opcional: Filtrar solo audios puros (sin video)
-    const audiosPurosM4A = audiosM4A.filter(f => f.has_audio && !f.has_video);
-
-    // 🟢 Mejor video (con audio), por si acaso
+    // 🟢 Mejor video con audio
     const mejorVideo = formatos.find(f => f.has_audio && f.has_video) || null;
 
-    // 🧩 Construcción del JSON de respuesta
     const resultado = {
       status: true,
       marca: "BK9🔥 + Tu filtro",
@@ -59,32 +73,35 @@ app.get("/download/youtube", async (req, res) => {
         duracion: videoInfo.duration,
         miniatura: videoInfo.thumbnail,
         url_original: cleanUrl,
-        formato_video: mejorVideo ? {
-          calidad: mejorVideo.quality || mejorVideo.quality_label || "360p",
-          extension: mejorVideo.ext || "mp4",
-          enlace: mejorVideo.url
-        } : null,
-        // 🔊 Lista de *todos* los audios m4a puros
+        formato_video: mejorVideo
+          ? {
+              calidad: mejorVideo.quality || mejorVideo.quality_label || "360p",
+              extension: mejorVideo.ext || "mp4",
+              enlace: mejorVideo.url,
+            }
+          : null,
         audios_m4a: audiosPurosM4A.map(audio => ({
-          calidad: audio.quality || `${audio.bitrate || 'desconocida'} - ${audio.audio_quality || ''}`.trim() || "audio",
+          calidad:
+            audio.quality ||
+            `${audio.bitrate || "desconocida"} - ${audio.audio_quality || ""}`.trim() ||
+            "audio",
           bitrate: audio.bitrate || "N/A",
           extension: audio.extension || "m4a",
           enlace: audio.url,
-          format_id: audio.format_id
-        }))
-      }
+          format_id: audio.format_id,
+        })),
+      },
     };
 
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.send(JSON.stringify(resultado, null, 2));
-
   } catch (err) {
     console.error("❌ Error:", err);
     res.status(500).json({ status: false, error: err.message });
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`✅ API con filtro de m4a lista en http://localhost:${PORT}/download/youtube?url=`);
+  console.log(`✅ API con CORS lista en http://localhost:${PORT}/download/youtube?url=`);
 });
