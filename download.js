@@ -1,39 +1,9 @@
-//+ ╭────────────────────────────────────────────
-//+ │ NOMBRE DEL PROYECTO        
-//+ │────────────────────────────────────────────
-//+ │ 📦 FUNCIONES:  1      
-//+ │ 💼 MODULOS:    2               
-//+ │ 💻 SERCIOS:  1           
-//+ │ 📡 APIS:     1        
-//+ │ 🎵ETC:    Descarga de audio/video YouTube         
-//+ │ 🌐ETC:      API Express REST  
-//+ │ 🧩ETC:       Uso de ytdlp-nodejs        
-//+ │ ⚙️ETC:       Manejo de URLs y formatos     
-//+ │ 📊ETC:  Respuesta JSON estructurada          
-//+ │ 🛠️ETC:   Logging y manejo de errores  
-//+ │──────────────────────────────────────────────────
-//+ │ 💬 DESCRIPCIÓN:    API Express que permite descargar información y enlaces 
-//+ │ de audio/video de YouTube usando ytdlp-nodejs. Recibe una URL, la limpia, 
-//+ │ obtiene metadatos y formatos disponibles (audio sin video y video 360p), 
-//+ | y devuelve una respuesta JSON estructurada.
-//+ ╰────────────────────────────────────────────
-
-//> ╭──────────────────────
-//> │ 📦 IMPORTACIONES DE MODULOS 
-//> ╰──────────────────────
+// archivo: server.js
 import express from "express";
-import { YtDlp } from "ytdlp-nodejs";
+import fetch from "node-fetch";
 
-//> ╭──────────────────────
-//> │ 🛠️ CONFIGURACION INICIAL 
-//> ╰──────────────────────
 const app = express();
-const ytdlp = new YtDlp();
 
-//> ╭──────────────────────
-//> │ 🔁 FUNCION PRINCIPAL: limpiarYouTubeUrl
-//> │   Propósito: Normalizar cualquier URL de YouTube (youtube.com o youtu.be) a un formato estándar.
-//> ╰──────────────────────
 function limpiarYouTubeUrl(url) {
   try {
     const u = new URL(url);
@@ -41,7 +11,7 @@ function limpiarYouTubeUrl(url) {
       return `https://www.youtube.com/watch?v=${u.searchParams.get("v")}`;
     }
     if (u.hostname.includes("youtu.be")) {
-      return `https://www.youtube.com/watch?v=${u.pathname.slice(1)}`; // ❗ Corrección: Quita los espacios extra al inicio
+      return `https://www.youtube.com/watch?v=${u.pathname.slice(1)}`;
     }
     return url;
   } catch {
@@ -49,88 +19,72 @@ function limpiarYouTubeUrl(url) {
   }
 }
 
-//> ╭──────────────────────
-//> │ 🌐 ENDPOINT API: /download/youtube
-//> │   Propósito: Procesar solicitudes GET para obtener información y enlaces de descarga de un video de YouTube.
-//> ╰──────────────────────
 app.get("/download/youtube", async (req, res) => {
   const { url } = req.query;
 
-  //> └── Validación de parámetro requerido
   if (!url) {
     return res.status(400).json({ status: false, error: "Falta parámetro ?url=" });
   }
 
   try {
     const cleanUrl = limpiarYouTubeUrl(url);
+    const apiUrl = `https://api.bk9.dev/download/youtube?url=${encodeURIComponent(cleanUrl)}`;
+    const response = await fetch(apiUrl);
+    const data = await response.json();
 
-    //> └── Obtener metadatos del video usando ytdlp
-    const infoRaw = await ytdlp.execAsync(cleanUrl, { dumpSingleJson: true });
-    const info = JSON.parse(infoRaw);
+    if (!data || !data.status) {
+      throw new Error("No se pudo obtener datos del video desde la API externa.");
+    }
 
-    //> └── Filtrar y ordenar formatos de audio (sin video)
-    const audio = info.formats
-      .filter(f => f.vcodec === "none" && f.acodec !== "none")
-      .sort((a, b) => (b.abr || 0) - (a.abr || 0))[0];
+    const videoInfo = data.BK9 || data;
+    const formatos = videoInfo.formats || [];
 
-    //> └── Buscar formato de video específico (360p)
-    const video360 = info.formats.find(f => f.format_id === "18");
+    // 🔹 Filtramos todos los audios m4a
+    const audiosM4A = formatos.filter(f => f.type === 'audio' && f.extension === 'm4a');
 
-    //> └── Construir objeto de respuesta
-    const result = {
+    // 🎵 Opcional: Filtrar solo audios puros (sin video)
+    const audiosPurosM4A = audiosM4A.filter(f => f.has_audio && !f.has_video);
+
+    // 🟢 Mejor video (con audio), por si acaso
+    const mejorVideo = formatos.find(f => f.has_audio && f.has_video) || null;
+
+    // 🧩 Construcción del JSON de respuesta
+    const resultado = {
       status: true,
-      title: info.title,
-      uploader: info.uploader,
-      duration: info.duration,
-      thumbnail: info.thumbnail,
-      cleanedUrl: cleanUrl,
-      available: [
-        audio && {
-          type: "audio",
-          format_id: audio.format_id,
-          ext: audio.ext,
-          quality: `${audio.abr || "?"} kbps (Audio Calidad Media)`,
-          url: audio.url,
-        },
-        video360 && {
-          type: "video",
-          format_id: video360.format_id,
-          ext: video360.ext,
-          quality: video360.quality_label || "360p (MP4 Combinado)",
-          url: video360.url,
-        },
-      ].filter(Boolean),
+      marca: "BK9🔥 + Tu filtro",
+      fuente: "api.bk9.dev",
+      video: {
+        titulo: videoInfo.title,
+        autor: videoInfo.author || videoInfo.uploader || "Desconocido",
+        duracion: videoInfo.duration,
+        miniatura: videoInfo.thumbnail,
+        url_original: cleanUrl,
+        formato_video: mejorVideo ? {
+          calidad: mejorVideo.quality || mejorVideo.quality_label || "360p",
+          extension: mejorVideo.ext || "mp4",
+          enlace: mejorVideo.url
+        } : null,
+        // 🔊 Lista de *todos* los audios m4a puros
+        audios_m4a: audiosPurosM4A.map(audio => ({
+          calidad: audio.quality || `${audio.bitrate || 'desconocida'} - ${audio.audio_quality || ''}`.trim() || "audio",
+          bitrate: audio.bitrate || "N/A",
+          extension: audio.extension || "m4a",
+          enlace: audio.url,
+          format_id: audio.format_id
+        }))
+      }
     };
 
-    //> └── Enviar respuesta JSON formateada
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.send(JSON.stringify(result, null, 2));
+    res.send(JSON.stringify(resultado, null, 2));
+
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error:", err);
     res.status(500).json({ status: false, error: err.message });
   }
 });
 
-//> ╭──────────────────────
-//> │ 🚀 INICIO DEL SERVIDOR 
-//> │   Propósito: Escuchar en el puerto 3000 y mostrar mensaje de éxito.
-//> ╰──────────────────────
-app.listen(3000, () => console.log("✅ API lista en http://localhost:3000"));
-
-//~ ╭────────────────────────────────────────────────────
-//~ │ 🌟      ¡HOLIII~! COMO ESTAS SOY RUBI~ 💖           
-//~ │        Representando a: TEAM PROTOTYPE 🛠️👾         
-//~ │────────────────────────────────────────────────────
-//~ │ 🎯 ¿Necesitas ayuda tecnológica? ¡Aquí estamos~!    
-//~ │                                                    
-//~ │ 💼 Servicios Premium que ofrecemos:                
-//~ │                                                    
-//~ │ 🤖  AUTOMATIZACIÓN: Bots, sistemas y tareas smart~ 
-//~ │ 🧪  CREACIÓN: Ideas únicas hechas realidad 💡       
-//~ │ 🔧  SCRIPTS: Personalizados, rápidos y seguros 🛡️   
-//~ │ 🌀  CLONACIÓN: Entornos, sistemas, lógicas 🔍       
-//~ │                                                    
-//~ │ 💬 ¡Conversemos! Rubi y el team están atentos~ 💻   
-//~ │ 🏡  DISCORD: https://discord.gg/2qcRceCmtC           
-//~ │ 🌐  WEB:     https://skrifna.uk/                 
-//~ ╰────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ API con filtro de m4a lista en http://localhost:${PORT}/download/youtube?url=`);
+});
