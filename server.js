@@ -1,17 +1,12 @@
-// 📁 archivo: server.js
-// ===============================
-
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
-import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import ffmpeg from "fluent-ffmpeg";
+import ffmpegPath from "ffmpeg-static"; // <-- usamos ffmpeg-static
 
-ffmpeg.setFfmpegPath(ffmpegPath.path);
-
-
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 
@@ -26,7 +21,6 @@ app.use((req, res, next) => {
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept, Authorization"
   );
-
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
@@ -87,9 +81,7 @@ app.get("/download/youtube", async (req, res) => {
     const audiosM4A = formatos.filter(f => f.type === "audio" && f.extension === "m4a" && f.has_audio && !f.has_video);
     const mejorVideo = formatos.find(f => f.has_audio && f.has_video) || null;
 
-    // ===============================
     // 🔊 Si pide tipo=audio → convertir a MP3
-    // ===============================
     if (type === "audio" && audiosM4A.length > 0) {
       const audio = audiosM4A[0]; // elegimos el primero o el de mejor calidad
       const nombreArchivo = `audio_${Date.now()}.mp3`;
@@ -106,9 +98,7 @@ app.get("/download/youtube", async (req, res) => {
       return;
     }
 
-    // ===============================
     // 🎥 Si pide tipo=video → devolver link directo
-    // ===============================
     if (type === "video" && mejorVideo) {
       return res.json({
         status: true,
@@ -119,9 +109,7 @@ app.get("/download/youtube", async (req, res) => {
       });
     }
 
-    // ===============================
     // 📦 Si no especifica tipo → JSON completo
-    // ===============================
     const resultado = {
       status: true,
       fuente: "skrifna.uk",
@@ -155,11 +143,8 @@ app.get("/download/youtube", async (req, res) => {
   }
 });
 
-// ===============================
 // 🚀 Inicio del servidor
-// ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ API lista en: http://localhost:${PORT}/download/youtube?url=`);
 });
-
