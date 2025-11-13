@@ -1,5 +1,4 @@
 import express from "express";
-import fetch from "node-fetch";
 import cors from "cors";
 import ffmpeg from "fluent-ffmpeg";
 import fs from "fs";
@@ -45,6 +44,8 @@ app.get("/download/youtube", async (req, res) => {
   try {
     const cleanUrl = limpiarYouTubeUrl(url);
     const apiUrl = `https://api.bk9.dev/download/youtube?url=${encodeURIComponent(cleanUrl)}`;
+
+    // fetch nativo de Node 22+
     const response = await fetch(apiUrl);
     const data = await response.json();
 
@@ -56,13 +57,12 @@ app.get("/download/youtube", async (req, res) => {
     // 🔹 Mejor video con audio
     const mejorVideo = formatos.find((f) => f.has_audio && f.has_video) || null;
 
-    // 🔹 Filtramos audios puros
+    // 🔹 Audios puros
     const audiosPurosM4A = formatos.filter(f => f.type === "audio" && f.has_audio && !f.has_video);
 
     if (type === "audio") {
       if (!audiosPurosM4A.length) return res.status(404).json({ status: false, error: "No se encontraron audios disponibles." });
 
-      // Tomamos el primero para convertir
       const audioUrl = audiosPurosM4A[0].url;
       const tempMp3 = path.join(tmpdir(), `audio_${Date.now()}.mp3`);
 
@@ -71,7 +71,7 @@ app.get("/download/youtube", async (req, res) => {
         .on("end", () => {
           res.setHeader("Content-Type", "audio/mpeg");
           res.sendFile(tempMp3, (err) => {
-            fs.unlink(tempMp3, () => {}); // borramos el archivo temporal
+            fs.unlink(tempMp3, () => {});
           });
         })
         .on("error", (err) => {
@@ -81,7 +81,7 @@ app.get("/download/youtube", async (req, res) => {
         .save(tempMp3);
 
     } else {
-      // type=video o cualquier otro: enviamos el mejor video con audio
+      // type=video o por defecto
       if (!mejorVideo) return res.status(404).json({ status: false, error: "No se encontró un video disponible." });
 
       res.json({
@@ -111,5 +111,5 @@ app.get("/download/youtube", async (req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ API mejorada lista en: http://localhost:${PORT}/download/youtube?url=`);
+  console.log(`✅ API lista en: http://localhost:${PORT}/download/youtube?url=`);
 });
