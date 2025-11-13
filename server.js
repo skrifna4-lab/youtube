@@ -1,29 +1,21 @@
-// server.js
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import ffmpeg from "fluent-ffmpeg";
 import fs from "fs";
 import path from "path";
-import ytdl from "ytdl-core";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegPath from "ffmpeg-static";
-
-ffmpeg.setFfmpegPath(ffmpegPath);
+import { tmpdir } from "os";
 
 const app = express();
 
 // ===============================
-// 🌍 CORS universal
+// 🌍 CORS universal y seguridad básica
 // ===============================
 app.use(cors());
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
@@ -34,43 +26,12 @@ app.use((req, res, next) => {
 function limpiarYouTubeUrl(url) {
   try {
     const u = new URL(url);
-    if (u.hostname.includes("youtube.com"))
-      return `https://www.youtube.com/watch?v=${u.searchParams.get("v")}`;
-    if (u.hostname.includes("youtu.be"))
-      return `https://www.youtube.com/watch?v=${u.pathname.slice(1)}`;
+    if (u.hostname.includes("youtube.com")) return `https://www.youtube.com/watch?v=${u.searchParams.get("v")}`;
+    if (u.hostname.includes("youtu.be")) return `https://www.youtube.com/watch?v=${u.pathname.slice(1)}`;
     return url;
   } catch {
     return url;
   }
-}
-
-// ===============================
-// 🔊 Descargar audio y convertir a MP3
-// ===============================
-async function descargarYConvertir(url, salida) {
-  const tmpFile = `temp/temp_${Date.now()}.m4a`;
-
-  if (!fs.existsSync("temp")) fs.mkdirSync("temp");
-
-  // Descargar audio M4A
-  await new Promise((resolve, reject) => {
-    ytdl(url, { filter: "audioonly", quality: "highestaudio" })
-      .pipe(fs.createWriteStream(tmpFile))
-      .on("finish", resolve)
-      .on("error", reject);
-  });
-
-  // Convertir a MP3
-  await new Promise((resolve, reject) => {
-    ffmpeg(tmpFile)
-      .noVideo()
-      .audioBitrate("192k")
-      .save(salida)
-      .on("end", resolve)
-      .on("error", reject);
-  });
-
-  fs.unlinkSync(tmpFile);
 }
 
 // ===============================
@@ -79,71 +40,66 @@ async function descargarYConvertir(url, salida) {
 app.get("/download/youtube", async (req, res) => {
   const { url, type } = req.query;
 
-  if (!url) {
-    return res.status(400).json({ status: false, error: "Falta parámetro ?url=" });
-  }
+  if (!url) return res.status(400).json({ status: false, error: "Falta parámetro ?url=" });
 
   try {
     const cleanUrl = limpiarYouTubeUrl(url);
+    const apiUrl = `https://api.bk9.dev/download/youtube?url=${encodeURIComponent(cleanUrl)}`;
+    const response = await fetch(apiUrl);
+    const data = await response.json();
 
-    // Obtener info del video
-    const info = await ytdl.getInfo(cleanUrl);
-    const formats = info.formats || [];
-    const audios = formats.filter(f => f.hasAudio && !f.hasVideo);
-    const videos = formats.filter(f => f.hasVideo && f.hasAudio);
+    if (!data || !data.status) throw new Error("No se pudo obtener datos del video desde la API externa.");
 
-    // ===============================
-    // Audio MP3
-    // ===============================
-    if (type === "audio" && audios.length > 0) {
-      const salida = `temp/audio_${Date.now()}.mp3`;
-      await descargarYConvertir(cleanUrl, salida);
+    const videoInfo = data.BK9 || data;
+    const formatos = videoInfo.formats || [];
 
-      res.download(salida, path.basename(salida), err => {
-        fs.unlinkSync(salida);
-        if (err) console.error("Error al enviar MP3:", err);
-      });
-      return;
-    }
+    // 🔹 Mejor video con audio
+    const mejorVideo = formatos.find((f) => f.has_audio && f.has_video) || null;
 
-    // ===============================
-    // Video
-    // ===============================
-    if (type === "video" && videos.length > 0) {
-      const mejor = videos[0];
-      return res.json({
+    // 🔹 Filtramos audios puros
+    const audiosPurosM4A = formatos.filter(f => f.type === "audio" && f.has_audio && !f.has_video);
+
+    if (type === "audio") {
+      if (!audiosPurosM4A.length) return res.status(404).json({ status: false, error: "No se encontraron audios disponibles." });
+
+      // Tomamos el primero para convertir
+      const audioUrl = audiosPurosM4A[0].url;
+      const tempMp3 = path.join(tmpdir(), `audio_${Date.now()}.mp3`);
+
+      ffmpeg(audioUrl)
+        .toFormat("mp3")
+        .on("end", () => {
+          res.setHeader("Content-Type", "audio/mpeg");
+          res.sendFile(tempMp3, (err) => {
+            fs.unlink(tempMp3, () => {}); // borramos el archivo temporal
+          });
+        })
+        .on("error", (err) => {
+          console.error(err);
+          res.status(500).json({ status: false, error: "Error convirtiendo a MP3" });
+        })
+        .save(tempMp3);
+
+    } else {
+      // type=video o cualquier otro: enviamos el mejor video con audio
+      if (!mejorVideo) return res.status(404).json({ status: false, error: "No se encontró un video disponible." });
+
+      res.json({
         status: true,
-        tipo: "video",
-        enlace: mejor.url,
-        extension: mejor.container || "mp4",
-        calidad: mejor.qualityLabel || "360p",
+        video: {
+          titulo: videoInfo.title,
+          autor: videoInfo.author || videoInfo.uploader || "Desconocido",
+          duracion: videoInfo.duration,
+          miniatura: videoInfo.thumbnail,
+          url_original: cleanUrl,
+          formato_video: {
+            calidad: mejorVideo.quality || mejorVideo.quality_label || "360p",
+            extension: mejorVideo.ext || "mp4",
+            enlace: mejorVideo.url
+          }
+        }
       });
     }
-
-    // ===============================
-    // JSON completo
-    // ===============================
-    res.json({
-      status: true,
-      video: {
-        titulo: info.videoDetails.title,
-        autor: info.videoDetails.author.name,
-        duracion: info.videoDetails.lengthSeconds,
-        miniatura: info.videoDetails.thumbnails[0]?.url || null,
-        url_original: cleanUrl,
-        audios: audios.map(a => ({
-          bitrate: a.bitrate || "N/A",
-          extension: a.container,
-          calidad: a.audioQuality || "N/A",
-          url: a.url,
-        })),
-        videos: videos.map(v => ({
-          calidad: v.qualityLabel,
-          extension: v.container,
-          url: v.url,
-        })),
-      },
-    });
   } catch (err) {
     console.error("❌ Error:", err);
     res.status(500).json({ status: false, error: err.message });
@@ -155,5 +111,5 @@ app.get("/download/youtube", async (req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ API lista en: http://localhost:${PORT}/download/youtube?url=`);
+  console.log(`✅ API mejorada lista en: http://localhost:${PORT}/download/youtube?url=`);
 });
