@@ -1,7 +1,7 @@
 {
   "name": "videos",
   "version": "1.0.0",
-  "description": "API para descargar videos y audios de YouTube con conversión automática a MP3 o enlaces directos MP4",
+  "description": "API para descargar videos y audios de YouTube con conversion automatica a MP3 o enlaces directos MP4",
   "main": "server.js",
   "type": "module",
   "scripts": {
