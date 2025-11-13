@@ -1,10 +1,12 @@
-// ===============================
 // 📁 archivo: server.js
 // ===============================
 
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
 
 const app = express();
 
@@ -12,21 +14,15 @@ const app = express();
 // 🌍 CORS universal y seguridad básica
 // ===============================
 app.use(cors());
-
 app.use((req, res, next) => {
-  // Permitir cualquier origen
   res.header("Access-Control-Allow-Origin", "*");
-  // Métodos permitidos
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  // Headers permitidos
   res.header(
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept, Authorization"
   );
 
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
+  if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
 
@@ -36,12 +32,10 @@ app.use((req, res, next) => {
 function limpiarYouTubeUrl(url) {
   try {
     const u = new URL(url);
-    if (u.hostname.includes("youtube.com")) {
+    if (u.hostname.includes("youtube.com"))
       return `https://www.youtube.com/watch?v=${u.searchParams.get("v")}`;
-    }
-    if (u.hostname.includes("youtu.be")) {
+    if (u.hostname.includes("youtu.be"))
       return `https://www.youtube.com/watch?v=${u.pathname.slice(1)}`;
-    }
     return url;
   } catch {
     return url;
@@ -49,50 +43,79 @@ function limpiarYouTubeUrl(url) {
 }
 
 // ===============================
+// 🧩 Conversión a MP3 (si es necesario)
+// ===============================
+function convertirAMp3(m4aUrl, salida) {
+  return new Promise((resolve, reject) => {
+    const comando = `ffmpeg -y -i "${m4aUrl}" -vn -ar 44100 -ac 2 -b:a 192k "${salida}"`;
+    exec(comando, (error) => {
+      if (error) reject(error);
+      else resolve(salida);
+    });
+  });
+}
+
+// ===============================
 // 🎬 Endpoint principal
 // ===============================
 app.get("/download/youtube", async (req, res) => {
-  const { url } = req.query;
+  const { url, type } = req.query;
 
   if (!url) {
-    return res
-      .status(400)
-      .json({ status: false, error: "Falta parámetro ?url=" });
+    return res.status(400).json({ status: false, error: "Falta parámetro ?url=" });
   }
 
   try {
     const cleanUrl = limpiarYouTubeUrl(url);
-    const apiUrl = `https://api.bk9.dev/download/youtube?url=${encodeURIComponent(
-      cleanUrl
-    )}`;
+    const apiUrl = `https://api.bk9.dev/download/youtube?url=${encodeURIComponent(cleanUrl)}`;
     const response = await fetch(apiUrl);
     const data = await response.json();
 
-    if (!data || !data.status) {
-      throw new Error("No se pudo obtener datos del video desde la API externa.");
-    }
+    if (!data || !data.status) throw new Error("No se pudo obtener datos del video desde la API externa.");
 
     const videoInfo = data.BK9 || data;
     const formatos = videoInfo.formats || [];
 
-    // 🔹 Filtramos todos los audios m4a
-    const audiosM4A = formatos.filter(
-      (f) => f.type === "audio" && f.extension === "m4a"
-    );
+    const audiosM4A = formatos.filter(f => f.type === "audio" && f.extension === "m4a" && f.has_audio && !f.has_video);
+    const mejorVideo = formatos.find(f => f.has_audio && f.has_video) || null;
 
-    // 🎵 Filtramos solo audios puros (sin video)
-    const audiosPurosM4A = audiosM4A.filter(
-      (f) => f.has_audio && !f.has_video
-    );
+    // ===============================
+    // 🔊 Si pide tipo=audio → convertir a MP3
+    // ===============================
+    if (type === "audio" && audiosM4A.length > 0) {
+      const audio = audiosM4A[0]; // elegimos el primero o el de mejor calidad
+      const nombreArchivo = `audio_${Date.now()}.mp3`;
+      const rutaSalida = path.join("temp", nombreArchivo);
 
-    // 🟢 Mejor video con audio
-    const mejorVideo =
-      formatos.find((f) => f.has_audio && f.has_video) || null;
+      if (!fs.existsSync("temp")) fs.mkdirSync("temp");
 
-    // 🧩 Construcción del JSON final
+      await convertirAMp3(audio.url, rutaSalida);
+
+      res.download(rutaSalida, nombreArchivo, (err) => {
+        fs.unlinkSync(rutaSalida); // eliminar archivo temporal al terminar
+        if (err) console.error("Error al enviar MP3:", err);
+      });
+      return;
+    }
+
+    // ===============================
+    // 🎥 Si pide tipo=video → devolver link directo
+    // ===============================
+    if (type === "video" && mejorVideo) {
+      return res.json({
+        status: true,
+        tipo: "video",
+        enlace: mejorVideo.url,
+        extension: mejorVideo.ext || "mp4",
+        calidad: mejorVideo.quality_label || "360p",
+      });
+    }
+
+    // ===============================
+    // 📦 Si no especifica tipo → JSON completo
+    // ===============================
     const resultado = {
       status: true,
-      marca: "skrifna.uk",
       fuente: "skrifna.uk",
       video: {
         titulo: videoInfo.title,
@@ -102,25 +125,16 @@ app.get("/download/youtube", async (req, res) => {
         url_original: cleanUrl,
         formato_video: mejorVideo
           ? {
-              calidad:
-                mejorVideo.quality ||
-                mejorVideo.quality_label ||
-                "360p",
+              calidad: mejorVideo.quality || mejorVideo.quality_label || "360p",
               extension: mejorVideo.ext || "mp4",
               enlace: mejorVideo.url,
             }
           : null,
-        audios_m4a: audiosPurosM4A.map((audio) => ({
-          calidad:
-            audio.quality ||
-            `${audio.bitrate || "desconocida"} - ${
-              audio.audio_quality || ""
-            }`.trim() ||
-            "audio",
-          bitrate: audio.bitrate || "N/A",
-          extension: audio.extension || "m4a",
-          enlace: audio.url,
-          format_id: audio.format_id,
+        audios_m4a: audiosM4A.map((a) => ({
+          calidad: a.quality || `${a.bitrate || "desconocida"} kbps`,
+          bitrate: a.bitrate || "N/A",
+          extension: a.extension || "m4a",
+          enlace: a.url,
         })),
       },
     };
@@ -138,8 +152,5 @@ app.get("/download/youtube", async (req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(
-    `✅ API con filtro M4A + CORS lista en: http://localhost:${PORT}/download/youtube?url=`
-  );
+  console.log(`✅ API lista en: http://localhost:${PORT}/download/youtube?url=`);
 });
-
