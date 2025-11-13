@@ -1,15 +1,11 @@
-// 📁 archivo: server.js
-// ===============================
-
+// 📁 server.js
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegPath from "@ffmpeg-installer/ffmpeg";
-
-ffmpeg.setFfmpegPath(ffmpegPath.path);
+import ffmpegPath from "ffmpeg-static"; // <--- usamos ffmpeg-static
 
 const app = express();
 
@@ -46,18 +42,15 @@ function limpiarYouTubeUrl(url) {
 }
 
 // ===============================
-// 🧩 Conversión a MP3 con fluent-ffmpeg
+// 🧩 Conversión a MP3 (usando ffmpeg-static)
 // ===============================
 function convertirAMp3(m4aUrl, salida) {
   return new Promise((resolve, reject) => {
-    ffmpeg(m4aUrl)
-      .noVideo()
-      .audioFrequency(44100)
-      .audioChannels(2)
-      .audioBitrate("192k")
-      .save(salida)
-      .on("end", () => resolve(salida))
-      .on("error", (err) => reject(err));
+    const comando = `"${ffmpegPath}" -y -i "${m4aUrl}" -vn -ar 44100 -ac 2 -b:a 192k "${salida}"`;
+    exec(comando, (error) => {
+      if (error) reject(error);
+      else resolve(salida);
+    });
   });
 }
 
@@ -85,11 +78,9 @@ app.get("/download/youtube", async (req, res) => {
     const audiosM4A = formatos.filter(f => f.type === "audio" && f.extension === "m4a" && f.has_audio && !f.has_video);
     const mejorVideo = formatos.find(f => f.has_audio && f.has_video) || null;
 
-    // ===============================
     // 🔊 Si pide tipo=audio → convertir a MP3
-    // ===============================
     if (type === "audio" && audiosM4A.length > 0) {
-      const audio = audiosM4A[0]; // elegimos el primero o el de mejor calidad
+      const audio = audiosM4A[0];
       const nombreArchivo = `audio_${Date.now()}.mp3`;
       const rutaSalida = path.join("temp", nombreArchivo);
 
@@ -98,15 +89,13 @@ app.get("/download/youtube", async (req, res) => {
       await convertirAMp3(audio.url, rutaSalida);
 
       res.download(rutaSalida, nombreArchivo, (err) => {
-        fs.unlinkSync(rutaSalida); // eliminar archivo temporal al terminar
+        fs.unlinkSync(rutaSalida);
         if (err) console.error("Error al enviar MP3:", err);
       });
       return;
     }
 
-    // ===============================
     // 🎥 Si pide tipo=video → devolver link directo
-    // ===============================
     if (type === "video" && mejorVideo) {
       return res.json({
         status: true,
@@ -117,9 +106,7 @@ app.get("/download/youtube", async (req, res) => {
       });
     }
 
-    // ===============================
     // 📦 Si no especifica tipo → JSON completo
-    // ===============================
     const resultado = {
       status: true,
       fuente: "skrifna.uk",
@@ -153,9 +140,7 @@ app.get("/download/youtube", async (req, res) => {
   }
 });
 
-// ===============================
 // 🚀 Inicio del servidor
-// ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ API lista en: http://localhost:${PORT}/download/youtube?url=`);
