@@ -20,10 +20,9 @@
   "author": "RB",
   "license": "MIT",
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.18.2",
-    "fluent-ffmpeg": "*",
-    "node-fetch": "^3.4.0"
+    "cors": "^2.8.5",
+    "fluent-ffmpeg": "^2.1.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
