@@ -4,9 +4,12 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegPath from "@ffmpeg-installer/ffmpeg";
+
+ffmpeg.setFfmpegPath(ffmpegPath.path);
 
 const app = express();
 
@@ -43,15 +46,18 @@ function limpiarYouTubeUrl(url) {
 }
 
 // ===============================
-// 🧩 Conversión a MP3 (si es necesario)
+// 🧩 Conversión a MP3 con fluent-ffmpeg
 // ===============================
 function convertirAMp3(m4aUrl, salida) {
   return new Promise((resolve, reject) => {
-    const comando = `ffmpeg -y -i "${m4aUrl}" -vn -ar 44100 -ac 2 -b:a 192k "${salida}"`;
-    exec(comando, (error) => {
-      if (error) reject(error);
-      else resolve(salida);
-    });
+    ffmpeg(m4aUrl)
+      .noVideo()
+      .audioFrequency(44100)
+      .audioChannels(2)
+      .audioBitrate("192k")
+      .save(salida)
+      .on("end", () => resolve(salida))
+      .on("error", (err) => reject(err));
   });
 }
 
